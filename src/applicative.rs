@@ -5,6 +5,7 @@
 //  pure :: a -> f a
 //  (<*>) :: f (a -> b) -> f a -> f b
 
+
 trait ApplicativeSuper {
     type Item;
 
