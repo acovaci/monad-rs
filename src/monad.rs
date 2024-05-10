@@ -9,32 +9,28 @@
 //  return :: a -> m a
 //  (>>=) :: m a -> (a -> m b) -> m b
 
-trait MonadSuper {
+trait Monad {
+    type Kind<T>: Monad;
     type Item;
+    type Result<U>: Monad<Kind<U> = Self::Kind<U>, Item = U>;
 
     fn new(x: Self::Item) -> Self;
-}
-
-trait Monad<M>: MonadSuper
-where
-    M: MonadSuper,
-{
-    fn bind(&self, f: fn(&<Self as MonadSuper>::Item) -> M) -> M;
+    fn bind<U>(&self, f: fn(&Self::Item) -> Self::Result<U>) -> Self::Result<U>;
 }
 
 #[derive(Debug, PartialEq)]
 struct Identity<T>(T);
 
-impl<T> MonadSuper for Identity<T> {
+impl<T> Monad for Identity<T> {
+    type Kind<U> = Identity<U>;
     type Item = T;
+    type Result<U> = Identity<U>;
 
     fn new(x: Self::Item) -> Self {
         Identity(x)
     }
-}
 
-impl<X, Y> Monad<Identity<Y>> for Identity<X> {
-    fn bind(&self, f: fn(&X) -> Identity<Y>) -> Identity<Y> {
+    fn bind<U>(&self, f: fn(&Self::Item) -> Self::Result<U>) -> Self::Result<U> {
         let Identity(x) = self;
         f(x)
     }
@@ -46,16 +42,16 @@ enum Maybe<T> {
     Just(T),
 }
 
-impl<T> MonadSuper for Maybe<T> {
+impl<T> Monad for Maybe<T> {
+    type Kind<U> = Maybe<U>;
     type Item = T;
+    type Result<U> = Maybe<U>;
 
     fn new(x: Self::Item) -> Self {
         Maybe::Just(x)
     }
-}
 
-impl<X, Y> Monad<Maybe<Y>> for Maybe<X> {
-    fn bind(&self, f: fn(&X) -> Maybe<Y>) -> Maybe<Y> {
+    fn bind<U>(&self, f: fn(&Self::Item) -> Self::Result<U>) -> Self::Result<U> {
         match self {
             Maybe::Nothing => Maybe::Nothing,
             Maybe::Just(x) => f(x),

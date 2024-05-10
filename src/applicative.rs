@@ -5,42 +5,37 @@
 //  pure :: a -> f a
 //  (<*>) :: f (a -> b) -> f a -> f b
 
-
-trait ApplicativeSuper {
+trait Applicative {
+    type Kind<T>: Applicative;
     type Item;
+    type Result<U>: Applicative<Kind<U> = Self::Kind<U>, Item = U>;
 
     fn new(x: Self::Item) -> Self;
-}
-
-trait Applicative<T, F, A>: ApplicativeSuper
-where
-    T: ApplicativeSuper,
-    F: Fn(&Self::Item) -> T::Item,
-    A: ApplicativeSuper<Item = F>,
-{
-    fn apply(&self, a: A) -> T;
+    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
+    where
+        F: Fn(&Self::Item) -> U;
 }
 
 #[derive(Debug, PartialEq)]
 struct Identity<T>(T);
 
-impl<T> ApplicativeSuper for Identity<T> {
+impl<T> Applicative for Identity<T> {
+    type Kind<U> = Identity<U>;
     type Item = T;
+    type Result<U> = Identity<U>;
 
     fn new(x: Self::Item) -> Self {
         Identity(x)
     }
-}
 
-impl<X, Y, F> Applicative<Identity<Y>, F, Identity<F>> for Identity<X>
-where
-    F: Fn(&X) -> Y,
-{
-    fn apply(&self, a: Identity<F>) -> Identity<Y> {
+    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
+    where
+        F: Fn(&Self::Item) -> U,
+    {
         let Identity(x) = self;
-        let f = a.0;
+        let Identity(f) = a;
         let y = f(x);
-        Identity::new(y)
+        Identity(y)
     }
 }
 
@@ -50,19 +45,19 @@ enum Maybe<T> {
     Just(T),
 }
 
-impl<T> ApplicativeSuper for Maybe<T> {
+impl<T> Applicative for Maybe<T> {
+    type Kind<U> = Maybe<U>;
     type Item = T;
+    type Result<U> = Maybe<U>;
 
     fn new(x: Self::Item) -> Self {
         Maybe::Just(x)
     }
-}
 
-impl<X, Y, F> Applicative<Maybe<Y>, F, Maybe<F>> for Maybe<X>
-where
-    F: Fn(&X) -> Y,
-{
-    fn apply(&self, a: Maybe<F>) -> Maybe<Y> {
+    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
+    where
+        F: Fn(&Self::Item) -> U,
+    {
         match self {
             Maybe::Nothing => Maybe::Nothing,
             Maybe::Just(x) => match a {

@@ -1,8 +1,6 @@
 // class Functor f where
 //fmap :: (a -> b) -> f a -> f b
 
-trait FunctorSuper {}
-
 trait Functor {
     type Kind<T>: Functor;
     type Item;
