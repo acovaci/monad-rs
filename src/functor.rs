@@ -1,42 +1,11 @@
 // class Functor f where
-//fmap :: (a -> b) -> f a -> f b
+// fmap :: (a -> b) -> f a -> f b
 
-pub trait MultiFunctor<T, U> {
-    type Generic<V>;
-    // where
-    //     Self: MultiFunctor<T, U, Generic<T> = U>;
-    type Kind<V>: MultiFunctor<
-        V,
-        Self::Generic<V>,
-        Generic<V> = Self::Generic<V>,
-        Kind<V> = Self::Kind<V>,
-    >;
-
-    fn multi_new(value: T) -> Self;
-    fn multi_map<'a, V>(&'a self, f: fn(&'a T) -> V) -> Self::Kind<V>;
-}
-
-pub trait Functor<T>: MultiFunctor<T, T> {
+pub trait Functor<T> {
     type Kind<U>: Functor<U>;
 
     fn new(value: T) -> Self;
     fn map<'a, U>(&'a self, f: fn(&'a T) -> U) -> <Self as Functor<T>>::Kind<U>;
-}
-
-impl<T, U> MultiFunctor<U, U> for T
-where
-    T: Functor<U>,
-{
-    type Generic<V> = ((V,), V);
-    type Kind<V> = <T as MultiFunctor<U, U>>::Kind<V>;
-
-    fn multi_new(value: U) -> Self {
-        Functor::<U>::new(value)
-    }
-
-    fn multi_map<'a, V>(&'a self, f: fn(&'a U) -> V) -> Self::Kind<V> {
-        MultiFunctor::<U, U>::multi_map::<V>(self, f)
-    }
 }
 
 #[cfg(test)]
@@ -140,49 +109,47 @@ mod tests {
             Right(R),
         }
 
-        impl<L, R> MultiFunctor<L, ((L, R), L)> for Either<L, R>
-        where
-            R: Clone,
-        {
-            type Generic<V> = ((V, R), V);
-            type Kind<V> = Either<V, R>;
+        impl<L, R: Clone> Functor<L> for Either<L, R> {
+            type Kind<U> = Either<U, R>;
 
-            fn multi_new(value: L) -> Self {
+            fn new(value: L) -> Self {
                 Either::Left(value)
             }
 
-            fn multi_map<'a, V>(&'a self, f: fn(&'a L) -> V) -> Self::Kind<V> {
+            fn map<'a, U>(&'a self, f: fn(&'a L) -> U) -> Either<U, R> {
                 match self {
                     Either::Left(value) => Either::Left(f(value)),
-                    Either::Right(value) => Either::Right(value.clone()), // or should we deref? or should Kind<V> = Either<V, &R>?
-                }
-            }
-        }
-
-        impl<L, R> MultiFunctor<R, ((L, R), L, R)> for Either<L, R>
-        where
-            L: Clone,
-        {
-            type Generic<V> = ((L, V), L, V);
-            type Kind<V> = Either<L, V>;
-
-            fn multi_new(value: R) -> Self {
-                Either::Right(value)
-            }
-
-            fn multi_map<'a, V>(&'a self, f: fn(&'a R) -> V) -> Self::Kind<V> {
-                match self {
-                    Either::Left(value) => Either::Left(value.clone()), // or should we deref? or should Kind<V> = Either<&L, V>?
-                    Either::Right(value) => Either::Right(f(value)),
+                    Either::Right(value) => Either::Right(value.clone()),
                 }
             }
         }
 
         #[test]
-        fn test_left_functor_left_same_type() {
-            let either = Either::<i32, i32>::Left(42);
-            let result = MultiFunctor::<i32, ((i32, i32), i32)>::multi_map(&either, |x| x + 1);
+        fn test_left_same_type() {
+            let either = Either::<_, ()>::Left(42);
+            let result = either.map(|x| x + 1);
             assert_eq!(result, Either::Left(43i32));
+        }
+
+        #[test]
+        fn test_right_same_type() {
+            let either = Either::Right(42);
+            let result = either.map(|x| x + 1);
+            assert_eq!(result, Either::Right(42));
+        }
+
+        #[test]
+        fn test_left_different_type() {
+            let either = Either::<_, ()>::Left(42);
+            let result = either.map(|x| x.to_string());
+            assert_eq!(result, Either::Left("42".to_string()));
+        }
+
+        #[test]
+        fn test_right_different_type() {
+            let either = Either::<i32, _>::Right(42);
+            let result = either.map(|x| x.to_string());
+            assert_eq!(result, Either::Right(42));
         }
     }
 }
