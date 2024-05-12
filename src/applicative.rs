@@ -5,121 +5,211 @@
 //  pure :: a -> f a
 //  (<*>) :: f (a -> b) -> f a -> f b
 
-trait Applicative {
-    type Kind<T>: Applicative;
-    type Item;
-    type Result<U>: Applicative<Kind<U> = Self::Kind<U>, Item = U>;
+pub trait Applicative<T> {
+    type Kind<U>: Applicative<U>;
 
-    fn new(x: Self::Item) -> Self;
-    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
+    fn new(value: T) -> Self;
+    fn apply<'a, U>(&'a self, f: Self::Kind<impl Fn(&'a T) -> U>) -> Self::Kind<U>
     where
-        F: Fn(&Self::Item) -> U;
-}
-
-#[derive(Debug, PartialEq)]
-struct Identity<T>(T);
-
-impl<T> Applicative for Identity<T> {
-    type Kind<U> = Identity<U>;
-    type Item = T;
-    type Result<U> = Identity<U>;
-
-    fn new(x: Self::Item) -> Self {
-        Identity(x)
-    }
-
-    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
-    where
-        F: Fn(&Self::Item) -> U,
-    {
-        let Identity(x) = self;
-        let Identity(f) = a;
-        let y = f(x);
-        Identity(y)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-enum Maybe<T> {
-    Nothing,
-    Just(T),
-}
-
-impl<T> Applicative for Maybe<T> {
-    type Kind<U> = Maybe<U>;
-    type Item = T;
-    type Result<U> = Maybe<U>;
-
-    fn new(x: Self::Item) -> Self {
-        Maybe::Just(x)
-    }
-
-    fn apply<U, F>(&self, a: Self::Result<F>) -> Self::Result<U>
-    where
-        F: Fn(&Self::Item) -> U,
-    {
-        match self {
-            Maybe::Nothing => Maybe::Nothing,
-            Maybe::Just(x) => match a {
-                Maybe::Nothing => Maybe::Nothing,
-                Maybe::Just(f) => Maybe::Just(f(x)),
-            },
-        }
-    }
+        T: 'a;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_identity() {
-        let x = Identity(1);
-        let f = |x: &i32| x + 1;
-        let a = Identity(f);
-        let y = x.apply(a);
-        assert_eq!(y, Identity(2));
+    mod identity {
+        use super::*;
+
+        #[derive(Debug, PartialEq, Eq)]
+        struct Identity<T> {
+            value: T,
+        }
+
+        impl<T> Applicative<T> for Identity<T> {
+            type Kind<U> = Identity<U>;
+
+            fn new(value: T) -> Self {
+                Identity { value }
+            }
+
+            fn apply<'a, U>(&'a self, f: Identity<impl Fn(&'a T) -> U>) -> Self::Kind<U> {
+                let Identity { value: func } = f;
+                Identity {
+                    value: func(&self.value),
+                }
+            }
+        }
+
+        #[test]
+        fn test_same_type() {
+            let identity = Identity::new(1);
+            let identity2 = Identity::new(|x| x + 1);
+            let identity3 = identity.apply(identity2);
+            assert_eq!(identity3, Identity::new(2));
+        }
+
+        #[test]
+        fn test_different_type() {
+            let identity = Identity::new(1);
+            let identity2 = Identity::new(|x: &i32| x.to_string());
+            let identity3 = identity.apply(identity2);
+            assert_eq!(identity3, Identity::new("1".to_string()));
+        }
     }
 
-    #[test]
-    fn test_identity_different_types() {
-        let x = Identity(1);
-        let f = Identity(|x: &i32| x.to_string());
-        let y = x.apply(f);
-        assert_eq!(y, Identity("1".to_string()));
+    mod maybe {
+        use super::*;
+
+        #[derive(Debug, PartialEq, Eq)]
+        enum Maybe<T> {
+            Just(T),
+            Nothing,
+        }
+
+        impl<T> Applicative<T> for Maybe<T> {
+            type Kind<U> = Maybe<U>;
+
+            fn new(value: T) -> Self {
+                Maybe::Just(value)
+            }
+
+            fn apply<'a, U>(&'a self, f: Self::Kind<impl Fn(&'a T) -> U>) -> Self::Kind<U> {
+                match self {
+                    Maybe::Just(value) => match f {
+                        Maybe::Just(func) => Maybe::Just(func(value)),
+                        Maybe::Nothing => Maybe::Nothing,
+                    },
+                    Maybe::Nothing => Maybe::Nothing,
+                }
+            }
+        }
+
+        #[test]
+        fn test_just_same_type() {
+            let maybe = Maybe::Just(1);
+            let maybe2 = Maybe::Just(|x| x + 1);
+            let maybe3 = maybe.apply(maybe2);
+            assert_eq!(maybe3, Maybe::Just(2));
+        }
+
+        #[test]
+        fn test_just_different_type() {
+            let maybe = Maybe::Just(1);
+            let maybe2 = Maybe::Just(|x: &i32| x.to_string()); // hmm, can we get rid of type here?
+            let maybe3 = maybe.apply(maybe2);
+            assert_eq!(maybe3, Maybe::Just("1".to_string()));
+        }
+
+        #[test]
+        fn test_nothing_same_type() {
+            let maybe = Maybe::Nothing;
+            let maybe2 = Maybe::Just(|x: &i32| x + 1);
+            let maybe3 = maybe.apply(maybe2);
+            assert_eq!(maybe3, Maybe::Nothing);
+        }
+
+        #[test]
+        fn test_nothing_different_type() {
+            let maybe = Maybe::Nothing;
+            let maybe2 = Maybe::Just(|x: &i32| x.to_string());
+            let maybe3 = maybe.apply(maybe2);
+            assert_eq!(maybe3, Maybe::Nothing);
+        }
     }
 
-    #[test]
-    fn test_maybe_just() {
-        let x = Maybe::Just(1);
-        let f = |x: &i32| x + 1;
-        let a = Maybe::Just(f);
-        let y = x.apply(a);
-        assert_eq!(y, Maybe::Just(2));
-    }
+    mod either {
+        use super::*;
 
-    #[test]
-    fn test_maybe_nothing() {
-        let x = Maybe::Nothing;
-        let f = |x: &i32| x + 1;
-        let a = Maybe::Just(f);
-        let y = x.apply(a);
-        assert_eq!(y, Maybe::Nothing);
-    }
+        #[derive(Debug, PartialEq, Eq)]
+        enum Either<L, R> {
+            Left(L),
+            Right(R),
+        }
 
-    #[test]
-    fn test_maybe_just_different_types() {
-        let x = Maybe::Just(1);
-        let f = Maybe::Just(|x: &i32| x.to_string());
-        let y = x.apply(f);
-        assert_eq!(y, Maybe::Just("1".to_string()));
-    }
+        impl<T, U> Applicative<T> for Either<T, U>
+        where
+            U: Clone,
+        {
+            type Kind<V> = Either<V, U>;
 
-    #[test]
-    fn test_maybe_nothing_different_types() {
-        let x = Maybe::Nothing;
-        let f = Maybe::Just(|x: &i32| x.to_string());
-        let y = x.apply(f);
-        assert_eq!(y, Maybe::Nothing);
+            fn new(value: T) -> Self {
+                Either::Left(value)
+            }
+
+            fn apply<'a, V>(&'a self, f: Self::Kind<impl Fn(&'a T) -> V>) -> Self::Kind<V> {
+                match self {
+                    Either::Left(value) => match f {
+                        Either::Left(func) => Either::Left(func(value)),
+                        Either::Right(value) => Either::Right(value.clone()),
+                    },
+                    Either::Right(value) => Either::Right(value.clone()),
+                }
+            }
+        }
+
+        #[test]
+        fn test_left_applicative_left_left_same_type() {
+            let either = Either::<_, i32>::Left(1);
+            let either2 = Either::<_, i32>::Left(|x| x + 1);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Left(2));
+        }
+
+        #[test]
+        fn test_left_applicative_left_right_same_type() {
+            let either = Either::Left(1);
+            let either2 = Either::<fn(&i32) -> i32, _>::Right(2);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(2));
+        }
+
+        #[test]
+        fn test_left_applicative_right_left_same_type() {
+            let either = Either::Right(1);
+            let either2 = Either::<_, i32>::Left(|x| x + 1);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(1));
+        }
+
+        #[test]
+        fn test_left_applicative_right_right_same_type() {
+            let either = Either::<i32, _>::Right(1);
+            let either2 = Either::<fn(&i32) -> i32, _>::Right(2);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(1));
+        }
+
+        #[test]
+        fn test_left_applicative_left_left_different_type() {
+            let either = Either::<i32, i32>::Left(1);
+            let either2 = Either::Left(|x: &i32| x.to_string());
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Left("1".to_string()));
+        }
+
+        #[test]
+        fn test_left_applicative_left_right_different_type() {
+            let either = Either::Left(1);
+            let either2 = Either::<fn(&i32) -> String, _>::Right(2);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(2));
+        }
+
+        #[test]
+        fn test_left_applicative_right_left_different_type() {
+            let either = Either::Right(1);
+            let either2 = Either::Left(|x: &i32| x.to_string());
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(1));
+        }
+
+        #[test]
+        fn test_left_applicative_right_right_different_type() {
+            let either = Either::<i32, i32>::Right(1);
+            let either2 = Either::<fn(&i32) -> String, _>::Right(2);
+            let either3 = either.apply(either2);
+            assert_eq!(either3, Either::Right(1));
+        }
     }
 }
